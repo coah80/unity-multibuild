@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text;
 using UnityEditor;
+using UnityEditor.Build.Profile;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -166,32 +167,7 @@ namespace Coah.MultiBuild
         {
             var location = MultiBuildPaths.GetLocation(item, state.outputRoot, state.productName);
             PrepareLocation(location, item.target, state.cleanBuild);
-
-            var options = new BuildPlayerOptions
-            {
-                scenes = GetEnabledScenes(),
-                locationPathName = location,
-                target = item.target,
-                targetGroup = item.targetGroup,
-                options = BuildOptions.None
-            };
-
-            if (state.developmentBuild)
-            {
-                options.options |= BuildOptions.Development;
-            }
-
-            if (state.cleanBuild)
-            {
-                options.options |= BuildOptions.CleanBuildCache;
-            }
-
-            if (item.targetGroup == BuildTargetGroup.Standalone)
-            {
-                options.subtarget = (int)item.standaloneSubtarget;
-            }
-
-            var report = BuildPipeline.BuildPlayer(options);
+            var report = BuildPlayer(state, item, location);
             var succeeded = report.summary.result == BuildResult.Succeeded;
 
             state.results.Add(new MultiBuildResultRecord
@@ -212,6 +188,76 @@ namespace Coah.MultiBuild
             state.currentIndex++;
             SaveState(state);
             ScheduleResume();
+        }
+
+        private static BuildReport BuildPlayer(MultiBuildQueueState state, MultiBuildQueueItem item, string location)
+        {
+            var options = BuildOptions.None;
+
+            if (state.developmentBuild)
+            {
+                options |= BuildOptions.Development;
+            }
+
+            if (state.cleanBuild)
+            {
+                options |= BuildOptions.CleanBuildCache;
+            }
+
+            var buildProfile = GetActiveBuildProfile(item);
+            if (buildProfile != null)
+            {
+                var profileOptions = new BuildPlayerWithProfileOptions
+                {
+                    buildProfile = buildProfile,
+                    locationPathName = location,
+                    options = options
+                };
+
+                return BuildPipeline.BuildPlayer(profileOptions);
+            }
+
+            var playerOptions = new BuildPlayerOptions
+            {
+                scenes = GetEnabledScenes(),
+                locationPathName = location,
+                target = item.target,
+                targetGroup = item.targetGroup,
+                options = options
+            };
+
+            if (item.targetGroup == BuildTargetGroup.Standalone)
+            {
+                playerOptions.subtarget = (int)item.standaloneSubtarget;
+            }
+
+            return BuildPipeline.BuildPlayer(playerOptions);
+        }
+
+        private static BuildProfile GetActiveBuildProfile(MultiBuildQueueItem item)
+        {
+            var activeBuildProfile = BuildProfile.GetActiveBuildProfile();
+            if (activeBuildProfile == null)
+            {
+                return null;
+            }
+
+            if (activeBuildProfile.buildTarget != item.target)
+            {
+                return null;
+            }
+
+            if (activeBuildProfile.subtarget != item.standaloneSubtarget)
+            {
+                return null;
+            }
+
+            if (!activeBuildProfile.CanBuildLocally())
+            {
+                return null;
+            }
+
+            return activeBuildProfile;
         }
 
         private static void PrepareLocation(string location, BuildTarget target, bool cleanBuild)

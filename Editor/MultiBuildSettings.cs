@@ -11,7 +11,7 @@ namespace Coah.MultiBuild
         [SerializeField] private string productNameOverride = string.Empty;
         [SerializeField] private bool developmentBuild;
         [SerializeField] private bool cleanBuild;
-        [SerializeField] private bool stopOnFailure = true;
+        [SerializeField] private bool stopOnFailure;
         [SerializeField] private List<MultiBuildTargetEntry> targets = new List<MultiBuildTargetEntry>();
 
         internal string OutputRoot

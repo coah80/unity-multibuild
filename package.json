@@ -1,6 +1,6 @@
 {
   "name": "com.coah.multibuild",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "displayName": "Multi Build",
   "description": "Build multiple Unity targets in one pass from a single editor window.",
   "unity": "6000.1",
