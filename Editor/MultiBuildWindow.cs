@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace Coah.MultiBuild
 {
-    internal sealed class MultiBuildWindow : EditorWindow
+    public sealed class MultiBuildWindow : EditorWindow
     {
         private Vector2 scrollPosition;
 
@@ -14,6 +14,12 @@ namespace Coah.MultiBuild
             window.titleContent = new GUIContent("Multi Build");
             window.minSize = new Vector2(520f, 420f);
             window.Show();
+        }
+
+        [MenuItem("Window/Multi Build")]
+        private static void OpenFromWindow()
+        {
+            Open();
         }
 
         private void OnEnable()
