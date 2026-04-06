@@ -1,4 +1,7 @@
+using System;
+using System.Collections;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using UnityEditor;
 using UnityEditor.Build.Profile;
@@ -13,6 +16,10 @@ namespace Coah.MultiBuild
     {
         private const string StateKey = "Coah.MultiBuild.State";
         private const string LastSummaryKey = "Coah.MultiBuild.LastSummary";
+        private static readonly MethodInfo GetAllBuildProfilesMethod = GetBuildProfileModuleUtilMethod("GetAllBuildProfiles");
+        private static readonly PropertyInfo BuildProfileBuildTargetProperty = typeof(BuildProfile).GetProperty("buildTarget", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly PropertyInfo BuildProfileSubtargetProperty = typeof(BuildProfile).GetProperty("subtarget", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly MethodInfo BuildProfileCanBuildLocallyMethod = typeof(BuildProfile).GetMethod("CanBuildLocally", BindingFlags.Instance | BindingFlags.NonPublic);
         private static bool scheduled;
 
         static MultiBuildRunner()
@@ -160,6 +167,12 @@ namespace Coah.MultiBuild
                 return;
             }
 
+            if (EnsureBuildProfile(item))
+            {
+                ScheduleResume();
+                return;
+            }
+
             BuildCurrent(state, item);
         }
 
@@ -167,7 +180,35 @@ namespace Coah.MultiBuild
         {
             var location = MultiBuildPaths.GetLocation(item, state.outputRoot, state.productName);
             PrepareLocation(location, item.target, state.cleanBuild);
-            var report = BuildPlayer(state, item, location);
+            BuildReport report;
+
+            try
+            {
+                report = BuildPlayer(state, item, location);
+            }
+            catch (Exception exception)
+            {
+                state.results.Add(new MultiBuildResultRecord
+                {
+                    label = item.label,
+                    location = location,
+                    succeeded = false,
+                    result = exception.Message
+                });
+
+                if (!state.stopOnFailure)
+                {
+                    state.currentIndex++;
+                    SaveState(state);
+                    ScheduleResume();
+                    return;
+                }
+
+                SaveState(state);
+                Finish(state);
+                return;
+            }
+
             var succeeded = report.summary.result == BuildResult.Succeeded;
 
             state.results.Add(new MultiBuildResultRecord
@@ -237,27 +278,113 @@ namespace Coah.MultiBuild
         private static BuildProfile GetActiveBuildProfile(MultiBuildQueueItem item)
         {
             var activeBuildProfile = BuildProfile.GetActiveBuildProfile();
-            if (activeBuildProfile == null)
+            if (MatchesBuildProfile(activeBuildProfile, item))
+            {
+                return activeBuildProfile;
+            }
+
+            var buildProfiles = GetAllBuildProfiles();
+            if (buildProfiles == null)
             {
                 return null;
             }
 
-            if (activeBuildProfile.buildTarget != item.target)
+            foreach (var buildProfile in buildProfiles)
+            {
+                if (buildProfile is BuildProfile matchingBuildProfile && MatchesBuildProfile(matchingBuildProfile, item))
+                {
+                    return matchingBuildProfile;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool EnsureBuildProfile(MultiBuildQueueItem item)
+        {
+            var buildProfile = GetActiveBuildProfile(item);
+            if (buildProfile == null)
+            {
+                return false;
+            }
+
+            if (ReferenceEquals(BuildProfile.GetActiveBuildProfile(), buildProfile))
+            {
+                return false;
+            }
+
+            BuildProfile.SetActiveBuildProfile(buildProfile);
+            return true;
+        }
+
+        private static IList GetAllBuildProfiles()
+        {
+            if (GetAllBuildProfilesMethod == null)
             {
                 return null;
             }
 
-            if (activeBuildProfile.subtarget != item.standaloneSubtarget)
+            return GetAllBuildProfilesMethod.Invoke(null, null) as IList;
+        }
+
+        private static MethodInfo GetBuildProfileModuleUtilMethod(string name)
+        {
+            var type = Type.GetType("UnityEditor.Build.Profile.BuildProfileModuleUtil, UnityEditor");
+            if (type == null)
             {
                 return null;
             }
 
-            if (!activeBuildProfile.CanBuildLocally())
+            return type.GetMethod(name, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        }
+
+        private static bool MatchesBuildProfile(BuildProfile buildProfile, MultiBuildQueueItem item)
+        {
+            if (buildProfile == null || BuildProfileBuildTargetProperty == null || BuildProfileSubtargetProperty == null || BuildProfileCanBuildLocallyMethod == null)
             {
-                return null;
+                return false;
             }
 
-            return activeBuildProfile;
+            object canBuildLocallyValue;
+
+            try
+            {
+                canBuildLocallyValue = BuildProfileCanBuildLocallyMethod.Invoke(buildProfile, null);
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (canBuildLocallyValue is not bool canBuildLocally || !canBuildLocally)
+            {
+                return false;
+            }
+
+            object buildTargetValue;
+            object subtargetValue;
+
+            try
+            {
+                buildTargetValue = BuildProfileBuildTargetProperty.GetValue(buildProfile);
+                subtargetValue = BuildProfileSubtargetProperty.GetValue(buildProfile);
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (buildTargetValue is not BuildTarget buildTarget || buildTarget != item.target)
+            {
+                return false;
+            }
+
+            if (subtargetValue is not StandaloneBuildSubtarget subtarget)
+            {
+                return false;
+            }
+
+            return subtarget == item.standaloneSubtarget;
         }
 
         private static void PrepareLocation(string location, BuildTarget target, bool cleanBuild)
