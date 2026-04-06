@@ -1,0 +1,17 @@
+{
+  "name": "com.coah.multibuild",
+  "version": "0.1.0",
+  "displayName": "Multi Build",
+  "description": "Build multiple Unity targets in one pass from a single editor window.",
+  "unity": "6000.1",
+  "author": {
+    "name": "coah80"
+  },
+  "keywords": [
+    "unity",
+    "build",
+    "editor",
+    "automation",
+    "multiplatform"
+  ]
+}
